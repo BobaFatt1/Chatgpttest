@@ -9,23 +9,39 @@ on:
 
 permissions:
   contents: read
+  packages: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     env:
-      GPR_KEY: ${{ secrets.GPR_KEY }}
+      GPR_KEY: ${{ secrets.GPR_KEY || github.token }}
+      GPR_USER: ${{ github.actor }}
     steps:
       - name: Checkout patch
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Checkout official TrustTunnel v1.2.0
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: TrustTunnel/TrustTunnelFlutterClient
           ref: v1.2.0
           path: app
+      - name: Configure GitHub Packages credentials
+        run: |
+          sed -i 's/username = ""/username = System.getenv("GPR_USER") ?: ""/g' \
+            app/android/build.gradle \
+            app/plugins/vpn_plugin/android/build.gradle
+      - name: Verify access to the native Android VPN core
+        run: |
+          url="https://maven.pkg.github.com/TrustTunnel/TrustTunnelClient/com/adguard/trusttunnel/trusttunnel-client-android/1.1.5-rc.3/trusttunnel-client-android-1.1.5-rc.3.pom"
+          status=$(curl --silent --location --output /dev/null --write-out '%{http_code}' --user "$GPR_USER:$GPR_KEY" "$url")
+          if [ "$status" != "200" ]; then
+            echo "::error::GitHub Packages returned HTTP $status for TrustTunnel Android library."
+            echo "::error::If the built-in GITHUB_TOKEN cannot read this package, add a classic PAT with read:packages and public_repo as Actions secret GPR_KEY. Never commit a token."
+            exit 1
+          fi
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
